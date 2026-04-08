@@ -36,7 +36,9 @@ func FindPublished(page, limit int) ([]Post, int64, error) {
 	}()
 
 	skip := int64((page - 1) * limit)
-	opts := options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}}).SetSkip(skip).SetLimit(int64(limit))
+	// Exclude content field in list — fetch full content only on GetBySlug
+	projection := bson.M{"content": 0}
+	opts := options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}}).SetSkip(skip).SetLimit(int64(limit)).SetProjection(projection)
 	c, cancel := ctx()
 	defer cancel()
 	cur, err := col().Find(c, filter, opts)
@@ -55,7 +57,9 @@ func FindPublished(page, limit int) ([]Post, int64, error) {
 func FindAll() ([]Post, error) {
 	c, cancel := ctx()
 	defer cancel()
-	opts := options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}})
+	// Exclude content field in list
+	projection := bson.M{"content": 0}
+	opts := options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}}).SetProjection(projection)
 	cur, err := col().Find(c, bson.M{}, opts)
 	if err != nil {
 		return nil, err
