@@ -21,11 +21,24 @@ func ctx() (context.Context, context.CancelFunc) {
 
 func FindPublished(page, limit int) ([]Post, int64, error) {
 	filter := bson.M{"status": "published"}
-	c, cancel := ctx()
-	defer cancel()
-	total, _ := col().CountDocuments(c, filter)
+
+	// Run count and find in parallel
+	type countResult struct {
+		n   int64
+		err error
+	}
+	countCh := make(chan countResult, 1)
+	go func() {
+		c, cancel := ctx()
+		defer cancel()
+		n, err := col().CountDocuments(c, filter)
+		countCh <- countResult{n, err}
+	}()
+
 	skip := int64((page - 1) * limit)
 	opts := options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}}).SetSkip(skip).SetLimit(int64(limit))
+	c, cancel := ctx()
+	defer cancel()
 	cur, err := col().Find(c, filter, opts)
 	if err != nil {
 		return nil, 0, err
@@ -34,7 +47,9 @@ func FindPublished(page, limit int) ([]Post, int64, error) {
 	c2, cancel2 := ctx()
 	defer cancel2()
 	cur.All(c2, &result)
-	return result, total, nil
+
+	cr := <-countCh
+	return result, cr.n, cr.err
 }
 
 func FindAll() ([]Post, error) {
@@ -135,8 +150,14 @@ func TogglePublish(id bson.ObjectID) (*Post, error) {
 func EnsureIndexes() {
 	c, cancel := ctx()
 	defer cancel()
-	col().Indexes().CreateOne(c, mongo.IndexModel{
-		Keys:    bson.D{{Key: "slug", Value: 1}},
-		Options: options.Index().SetUnique(true),
+	col().Indexes().CreateMany(c, []mongo.IndexModel{
+		{
+			Keys:    bson.D{{Key: "slug", Value: 1}},
+			Options: options.Index().SetUnique(true),
+		},
+		{
+			// Cubre queries de posts publicados ordenados por fecha
+			Keys: bson.D{{Key: "status", Value: 1}, {Key: "createdAt", Value: -1}},
+		},
 	})
 }
