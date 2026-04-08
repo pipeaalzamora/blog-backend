@@ -20,6 +20,10 @@ func ctx() (context.Context, context.CancelFunc) {
 }
 
 func FindPublished(page, limit int) ([]Post, int64, error) {
+	if posts, total, ok := getCache(page, limit); ok {
+		return posts, total, nil
+	}
+
 	filter := bson.M{"status": "published"}
 
 	// Run count and find in parallel
@@ -51,6 +55,7 @@ func FindPublished(page, limit int) ([]Post, int64, error) {
 	cur.All(c2, &result)
 
 	cr := <-countCh
+	setCache(page, limit, result, cr.n)
 	return result, cr.n, cr.err
 }
 
@@ -116,6 +121,9 @@ func Create(p *Post) error {
 	c, cancel := ctx()
 	defer cancel()
 	_, err := col().InsertOne(c, p)
+	if err == nil {
+		InvalidateCache()
+	}
 	return err
 }
 
@@ -124,6 +132,9 @@ func Update(id bson.ObjectID, update bson.M) error {
 	c, cancel := ctx()
 	defer cancel()
 	_, err := col().UpdateOne(c, bson.M{"_id": id}, bson.M{"$set": update})
+	if err == nil {
+		InvalidateCache()
+	}
 	return err
 }
 
@@ -131,6 +142,9 @@ func Delete(id bson.ObjectID) error {
 	c, cancel := ctx()
 	defer cancel()
 	_, err := col().DeleteOne(c, bson.M{"_id": id})
+	if err == nil {
+		InvalidateCache()
+	}
 	return err
 }
 
