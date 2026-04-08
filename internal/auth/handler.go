@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -26,7 +25,6 @@ func LoginHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
-	log.Printf("DEBUG email_got=%q email_want=%q hash_len=%d", req.Email, adminEmail, len(adminPassHash))
 	if req.Email != adminEmail {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return
