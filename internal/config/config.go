@@ -40,11 +40,9 @@ func ConnectMongo(uri, dbName string) {
 	opts := options.Client().
 		ApplyURI(uri).
 		SetMaxPoolSize(5).
-		SetMinPoolSize(1).
-		SetMaxConnIdleTime(25 * time.Second). // Atlas M0 cierra idle connections a los 30s
-		SetHeartbeatInterval(10 * time.Second).
-		SetRetryReads(true).
-		SetRetryWrites(true)
+		SetMaxConnIdleTime(20 * time.Second).
+		SetHeartbeatInterval(8 * time.Second).
+		SetServerSelectionTimeout(30 * time.Second)
 
 	client, err := mongo.Connect(opts)
 	if err != nil {
@@ -55,4 +53,17 @@ func ConnectMongo(uri, dbName string) {
 	}
 	DB = client.Database(dbName)
 	log.Println("MongoDB connected")
+
+	// Keep-alive: ping every 15s to prevent Atlas M0 from closing idle connections
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := client.Ping(ctx, nil); err != nil {
+				log.Println("MongoDB keep-alive ping failed:", err)
+			}
+			cancel()
+		}
+	}()
 }

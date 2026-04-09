@@ -4,6 +4,7 @@ import (
 	"log"
 	"mindblog/internal/auth"
 	"mindblog/internal/config"
+	"mindblog/internal/media"
 	"mindblog/internal/middleware"
 	"mindblog/internal/posts"
 	"strings"
@@ -18,6 +19,7 @@ func main() {
 	auth.Init(cfg.JWTSecret)
 	auth.InitCredentials(cfg.AdminEmail, cfg.AdminPassHash)
 	posts.EnsureIndexes()
+	media.Init()
 
 	r := gin.Default()
 
@@ -40,6 +42,7 @@ func main() {
 	api := r.Group("/api")
 	{
 		api.POST("/auth/login", auth.LoginHandler)
+		api.POST("/upload", middleware.AuthRequired(), media.UploadHandler)
 
 		api.GET("/posts", posts.GetPublished)
 		api.GET("/posts/random", posts.GetRandom)
