@@ -62,9 +62,7 @@ func FindPublished(page, limit int) ([]Post, int64, error) {
 func FindAll() ([]Post, error) {
 	c, cancel := ctx()
 	defer cancel()
-	// Exclude content field in list
-	projection := bson.M{"content": 0}
-	opts := options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}}).SetProjection(projection)
+	opts := options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}})
 	cur, err := col().Find(c, bson.M{}, opts)
 	if err != nil {
 		return nil, err
