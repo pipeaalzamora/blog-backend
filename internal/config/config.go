@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"time"
 
 	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -36,7 +37,16 @@ func Load() *Config {
 }
 
 func ConnectMongo(uri, dbName string) {
-	client, err := mongo.Connect(options.Client().ApplyURI(uri))
+	opts := options.Client().
+		ApplyURI(uri).
+		SetMaxPoolSize(5).
+		SetMinPoolSize(1).
+		SetMaxConnIdleTime(25 * time.Second). // Atlas M0 cierra idle connections a los 30s
+		SetHeartbeatInterval(10 * time.Second).
+		SetRetryReads(true).
+		SetRetryWrites(true)
+
+	client, err := mongo.Connect(opts)
 	if err != nil {
 		log.Fatal("MongoDB connect error:", err)
 	}

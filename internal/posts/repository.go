@@ -16,7 +16,7 @@ func col() *mongo.Collection {
 }
 
 func ctx() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), 10*time.Second)
+	return context.WithTimeout(context.Background(), 30*time.Second)
 }
 
 func FindPublished(page, limit int) ([]Post, int64, error) {
