@@ -5,25 +5,31 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/gin-gonic/gin"
 )
 
-const (
-	bucket = "mindblog-media"
-	region = "us-east-1"
+var (
+	s3Client *s3.Client
+	bucket   string
+	region   string
 )
 
-var s3Client *s3.Client
-
 func Init() {
-	cfg, err := config.LoadDefaultConfig(context.Background(), config.WithRegion(region))
+	bucket = os.Getenv("S3_BUCKET")
+	region = os.Getenv("AWS_REGION")
+	if region == "" {
+		region = "us-east-1"
+	}
+
+	cfg, err := awsconfig.LoadDefaultConfig(context.Background(), awsconfig.WithRegion(region))
 	if err != nil {
 		panic("failed to load AWS config: " + err.Error())
 	}

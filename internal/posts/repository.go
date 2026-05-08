@@ -59,19 +59,38 @@ func FindPublished(page, limit int) ([]Post, int64, error) {
 	return result, cr.n, cr.err
 }
 
-func FindAll() ([]Post, error) {
+func FindAll(page, limit int) ([]Post, int64, error) {
+	type countResult struct {
+		n   int64
+		err error
+	}
+	countCh := make(chan countResult, 1)
+	go func() {
+		c, cancel := ctx()
+		defer cancel()
+		n, err := col().CountDocuments(c, bson.M{})
+		countCh <- countResult{n, err}
+	}()
+
+	skip := int64((page - 1) * limit)
+	opts := options.Find().
+		SetSort(bson.D{{Key: "createdAt", Value: -1}}).
+		SetSkip(skip).
+		SetLimit(int64(limit)).
+		SetProjection(bson.M{"content": 0})
 	c, cancel := ctx()
 	defer cancel()
-	opts := options.Find().SetSort(bson.D{{Key: "createdAt", Value: -1}})
 	cur, err := col().Find(c, bson.M{}, opts)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	var result []Post
 	c2, cancel2 := ctx()
 	defer cancel2()
 	cur.All(c2, &result)
-	return result, nil
+
+	cr := <-countCh
+	return result, cr.n, cr.err
 }
 
 func FindBySlug(slug string) (*Post, error) {

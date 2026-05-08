@@ -10,6 +10,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"golang.org/x/text/runes"
+	"golang.org/x/text/transform"
+	"golang.org/x/text/unicode/norm"
 )
 
 func wordCount(s string) int {
@@ -22,7 +25,14 @@ func calcReadingTime(content string) int {
 }
 
 func slugify(title string) string {
-	s := strings.ToLower(title)
+	// Normalizar unicode: descomponer caracteres acentuados (NFD)
+	// para separar la letra base del diacrítico y luego eliminar los diacríticos.
+	t := transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
+	normalized, _, err := transform.String(t, title)
+	if err != nil {
+		normalized = title
+	}
+	s := strings.ToLower(normalized)
 	var b strings.Builder
 	for _, r := range s {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {
@@ -31,7 +41,12 @@ func slugify(title string) string {
 			b.WriteRune('-')
 		}
 	}
-	return strings.Trim(b.String(), "-")
+	// Colapsar guiones múltiples consecutivos
+	result := strings.Trim(b.String(), "-")
+	for strings.Contains(result, "--") {
+		result = strings.ReplaceAll(result, "--", "-")
+	}
+	return result
 }
 
 func GetPublished(c *gin.Context) {
@@ -46,12 +61,14 @@ func GetPublished(c *gin.Context) {
 }
 
 func GetAll(c *gin.Context) {
-	posts, err := FindAll()
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	posts, total, err := FindAll(page, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"posts": posts})
+	c.JSON(http.StatusOK, gin.H{"posts": posts, "total": total, "page": page, "limit": limit})
 }
 
 func GetBySlug(c *gin.Context) {
