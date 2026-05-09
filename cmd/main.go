@@ -41,6 +41,10 @@ func main() {
 
 	api := r.Group("/api")
 	{
+		api.GET("/health", func(c *gin.Context) {
+			c.JSON(200, gin.H{"status": "ok"})
+		})
+
 		api.POST("/auth/login", auth.LoginHandler)
 		api.POST("/upload", middleware.AuthRequired(), media.UploadHandler)
 
