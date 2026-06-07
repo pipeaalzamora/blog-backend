@@ -10,9 +10,17 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 	"golang.org/x/text/runes"
 	"golang.org/x/text/transform"
 	"golang.org/x/text/unicode/norm"
+)
+
+const (
+	defaultPublicLimit = 10
+	defaultAdminLimit  = 20
+	maxPublicLimit     = 50
+	maxAdminLimit      = 100
 )
 
 func wordCount(s string) int {
@@ -49,9 +57,27 @@ func slugify(title string) string {
 	return result
 }
 
+func parsePagination(c *gin.Context, defaultLimit, maxLimit int) (int, int) {
+	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if err != nil || page < 1 {
+		page = 1
+	}
+	limit, err := strconv.Atoi(c.DefaultQuery("limit", strconv.Itoa(defaultLimit)))
+	if err != nil || limit < 1 {
+		limit = defaultLimit
+	}
+	if limit > maxLimit {
+		limit = maxLimit
+	}
+	return page, limit
+}
+
+func validStatus(status string) bool {
+	return status == "draft" || status == "published"
+}
+
 func GetPublished(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	page, limit := parsePagination(c, defaultPublicLimit, maxPublicLimit)
 	posts, total, err := FindPublished(page, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -61,14 +87,27 @@ func GetPublished(c *gin.Context) {
 }
 
 func GetAll(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	page, limit := parsePagination(c, defaultAdminLimit, maxAdminLimit)
 	posts, total, err := FindAll(page, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"posts": posts, "total": total, "page": page, "limit": limit})
+}
+
+func GetByID(c *gin.Context) {
+	id, err := bson.ObjectIDFromHex(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	post, err := FindByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "post not found"})
+		return
+	}
+	c.JSON(http.StatusOK, post)
 }
 
 func GetBySlug(c *gin.Context) {
@@ -102,6 +141,10 @@ func CreatePost(c *gin.Context) {
 	if req.Status == "" {
 		req.Status = "draft"
 	}
+	if !validStatus(req.Status) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid status"})
+		return
+	}
 	post := &Post{
 		Title:       req.Title,
 		Slug:        slug,
@@ -134,6 +177,13 @@ func UpdatePost(c *gin.Context) {
 	if slug == "" {
 		slug = slugify(req.Title)
 	}
+	if req.Status == "" {
+		req.Status = "draft"
+	}
+	if !validStatus(req.Status) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid status"})
+		return
+	}
 	update := bson.M{
 		"title":       req.Title,
 		"slug":        slug,
@@ -146,6 +196,10 @@ func UpdatePost(c *gin.Context) {
 		"updatedAt":   time.Now(),
 	}
 	if err := Update(id, update); err != nil {
+		if err == mongo.ErrNoDocuments {
+			c.JSON(http.StatusNotFound, gin.H{"error": "post not found"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -160,6 +214,10 @@ func DeletePost(c *gin.Context) {
 		return
 	}
 	if err := Delete(id); err != nil {
+		if err == mongo.ErrNoDocuments {
+			c.JSON(http.StatusNotFound, gin.H{"error": "post not found"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

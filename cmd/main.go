@@ -18,8 +18,10 @@ func main() {
 	config.ConnectMongo(cfg.MongoURI, cfg.MongoDB)
 	auth.Init(cfg.JWTSecret)
 	auth.InitCredentials(cfg.AdminEmail, cfg.AdminPassHash)
-	posts.EnsureIndexes()
-	media.Init()
+	if err := posts.EnsureIndexes(); err != nil {
+		log.Fatal("MongoDB index error:", err)
+	}
+	media.Init(cfg.S3Bucket, cfg.AWSRegion)
 
 	r := gin.Default()
 
@@ -56,6 +58,7 @@ func main() {
 		protected.Use(middleware.AuthRequired())
 		{
 			protected.GET("posts/all", posts.GetAll)
+			protected.GET("posts/id/:id", posts.GetByID)
 			protected.POST("posts", posts.CreatePost)
 			protected.PUT("posts/:id", posts.UpdatePost)
 			protected.DELETE("posts/:id", posts.DeletePost)

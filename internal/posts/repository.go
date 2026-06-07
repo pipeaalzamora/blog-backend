@@ -148,8 +148,11 @@ func Update(id bson.ObjectID, update bson.M) error {
 	update["updatedAt"] = time.Now()
 	c, cancel := ctx()
 	defer cancel()
-	_, err := col().UpdateOne(c, bson.M{"_id": id}, bson.M{"$set": update})
+	res, err := col().UpdateOne(c, bson.M{"_id": id}, bson.M{"$set": update})
 	if err == nil {
+		if res.MatchedCount == 0 {
+			return mongo.ErrNoDocuments
+		}
 		InvalidateCache()
 	}
 	return err
@@ -158,8 +161,11 @@ func Update(id bson.ObjectID, update bson.M) error {
 func Delete(id bson.ObjectID) error {
 	c, cancel := ctx()
 	defer cancel()
-	_, err := col().DeleteOne(c, bson.M{"_id": id})
+	res, err := col().DeleteOne(c, bson.M{"_id": id})
 	if err == nil {
+		if res.DeletedCount == 0 {
+			return mongo.ErrNoDocuments
+		}
 		InvalidateCache()
 	}
 	return err
@@ -182,10 +188,10 @@ func TogglePublish(id bson.ObjectID) (*Post, error) {
 	return p, nil
 }
 
-func EnsureIndexes() {
+func EnsureIndexes() error {
 	c, cancel := ctx()
 	defer cancel()
-	col().Indexes().CreateMany(c, []mongo.IndexModel{
+	_, err := col().Indexes().CreateMany(c, []mongo.IndexModel{
 		{
 			Keys:    bson.D{{Key: "slug", Value: 1}},
 			Options: options.Index().SetUnique(true),
@@ -195,4 +201,5 @@ func EnsureIndexes() {
 			Keys: bson.D{{Key: "status", Value: 1}, {Key: "createdAt", Value: -1}},
 		},
 	})
+	return err
 }

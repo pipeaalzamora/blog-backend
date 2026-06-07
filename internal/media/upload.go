@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -22,58 +22,85 @@ var (
 	region   string
 )
 
-func Init() {
-	bucket = os.Getenv("S3_BUCKET")
-	region = os.Getenv("AWS_REGION")
+const maxUploadBytes = 5 << 20
+
+var allowedImageTypes = map[string]string{
+	"image/jpeg": ".jpg",
+	"image/png":  ".png",
+	"image/webp": ".webp",
+	"image/gif":  ".gif",
+}
+
+func Init(bucketName, regionName string) {
+	bucket = strings.TrimSpace(bucketName)
+	region = strings.TrimSpace(regionName)
 	if region == "" {
 		region = "us-east-1"
+	}
+	if bucket == "" {
+		log.Fatal("missing required environment variable: S3_BUCKET")
 	}
 
 	cfg, err := awsconfig.LoadDefaultConfig(context.Background(), awsconfig.WithRegion(region))
 	if err != nil {
-		panic("failed to load AWS config: " + err.Error())
+		log.Fatal("failed to load AWS config:", err)
 	}
 	s3Client = s3.NewFromConfig(cfg)
 }
 
 func UploadHandler(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadBytes)
+
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "no file provided"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no valid image file provided"})
 		return
 	}
 	defer file.Close()
-
-	// Validate content type
-	buf := make([]byte, 512)
-	n, _ := file.Read(buf)
-	contentType := http.DetectContentType(buf[:n])
-	if !strings.HasPrefix(contentType, "image/") {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "only images allowed"})
+	if header.Size > maxUploadBytes {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "image exceeds 5 MB limit"})
 		return
 	}
 
-	// Read full file
-	var body bytes.Buffer
-	body.Write(buf[:n])
-	remaining := make([]byte, header.Size-int64(n))
-	file.Read(remaining)
-	body.Write(remaining)
+	buf := make([]byte, 512)
+	n, err := file.Read(buf)
+	if err != nil && err != io.EOF {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot read file"})
+		return
+	}
+	if n == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "empty file"})
+		return
+	}
+	contentType := http.DetectContentType(buf[:n])
+	ext, ok := allowedImageTypes[contentType]
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "only jpg, png, webp or gif images allowed"})
+		return
+	}
 
-	ext := filepath.Ext(header.Filename)
-	if ext == "" {
-		ext = ".jpg"
+	body, err := io.ReadAll(io.LimitReader(io.MultiReader(bytes.NewReader(buf[:n]), file), maxUploadBytes+1))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot read file"})
+		return
+	}
+	if int64(len(body)) > maxUploadBytes {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "image exceeds 5 MB limit"})
+		return
 	}
 	key := fmt.Sprintf("posts/%d%s", time.Now().UnixNano(), ext)
 
-	_, err = s3Client.PutObject(context.Background(), &s3.PutObjectInput{
-		Bucket:      aws.String(bucket),
-		Key:         aws.String(key),
-		Body:        bytes.NewReader(body.Bytes()),
-		ContentType: aws.String(contentType),
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err = s3Client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:        aws.String(bucket),
+		Key:           aws.String(key),
+		Body:          bytes.NewReader(body),
+		ContentType:   aws.String(contentType),
+		ContentLength: aws.Int64(int64(len(body))),
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "upload failed: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "upload failed"})
 		return
 	}
 

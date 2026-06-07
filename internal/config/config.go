@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -19,51 +20,73 @@ type Config struct {
 	MongoDB        string
 	Port           string
 	FrontendOrigin string
+	S3Bucket       string
+	AWSRegion      string
 }
 
 var DB *mongo.Database
 
 func Load() *Config {
 	_ = godotenv.Load()
-	return &Config{
-		AdminEmail:     os.Getenv("ADMIN_EMAIL"),
-		AdminPassHash:  os.Getenv("ADMIN_PASSWORD_HASH"),
-		JWTSecret:      os.Getenv("JWT_SECRET"),
-		MongoURI:       os.Getenv("MONGODB_URI"),
-		MongoDB:        os.Getenv("MONGODB_DB"),
-		Port:           os.Getenv("PORT"),
-		FrontendOrigin: os.Getenv("FRONTEND_ORIGIN"),
+	cfg := &Config{
+		AdminEmail:     env("ADMIN_EMAIL"),
+		AdminPassHash:  env("ADMIN_PASSWORD_HASH"),
+		JWTSecret:      env("JWT_SECRET"),
+		MongoURI:       env("MONGODB_URI"),
+		MongoDB:        env("MONGODB_DB"),
+		Port:           env("PORT"),
+		FrontendOrigin: env("FRONTEND_ORIGIN"),
+		S3Bucket:       env("S3_BUCKET"),
+		AWSRegion:      env("AWS_REGION"),
+	}
+	cfg.validate()
+	return cfg
+}
+
+func env(key string) string {
+	return strings.TrimSpace(os.Getenv(key))
+}
+
+func (c *Config) validate() {
+	required := map[string]string{
+		"ADMIN_EMAIL":         c.AdminEmail,
+		"ADMIN_PASSWORD_HASH": c.AdminPassHash,
+		"JWT_SECRET":          c.JWTSecret,
+		"MONGODB_URI":         c.MongoURI,
+		"MONGODB_DB":          c.MongoDB,
+		"FRONTEND_ORIGIN":     c.FrontendOrigin,
+		"S3_BUCKET":           c.S3Bucket,
+	}
+	for key, value := range required {
+		if value == "" {
+			log.Fatalf("missing required environment variable: %s", key)
+		}
+	}
+	if len(c.JWTSecret) < 32 {
+		log.Fatal("JWT_SECRET must be at least 32 characters")
 	}
 }
 
 func ConnectMongo(uri, dbName string) {
 	opts := options.Client().
 		ApplyURI(uri).
-		SetMaxPoolSize(5).
-		SetMaxConnIdleTime(20 * time.Second).
-		SetHeartbeatInterval(8 * time.Second).
-		SetServerSelectionTimeout(30 * time.Second)
+		// Personal blog service: keep the pool modest, reuse idle connections,
+		// and fail fast on topology or network stalls.
+		SetMaxPoolSize(20).
+		SetMinPoolSize(0).
+		SetMaxConnIdleTime(5 * time.Minute).
+		SetConnectTimeout(10 * time.Second).
+		SetServerSelectionTimeout(5 * time.Second)
 
 	client, err := mongo.Connect(opts)
 	if err != nil {
 		log.Fatal("MongoDB connect error:", err)
 	}
-	if err := client.Ping(context.Background(), nil); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := client.Ping(ctx, nil); err != nil {
 		log.Fatal("MongoDB ping error:", err)
 	}
 	DB = client.Database(dbName)
 	log.Println("MongoDB connected")
-
-	// Keep-alive: ping every 15s to prevent Atlas M0 from closing idle connections
-	go func() {
-		ticker := time.NewTicker(15 * time.Second)
-		defer ticker.Stop()
-		for range ticker.C {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			if err := client.Ping(ctx, nil); err != nil {
-				log.Println("MongoDB keep-alive ping failed:", err)
-			}
-			cancel()
-		}
-	}()
 }
