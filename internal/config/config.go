@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"errors"
 	"log"
 	"os"
 	"strings"
@@ -22,6 +23,7 @@ type Config struct {
 	FrontendOrigin string
 	S3Bucket       string
 	AWSRegion      string
+	TrustedProxies []string
 }
 
 var DB *mongo.Database
@@ -38,9 +40,22 @@ func Load() *Config {
 		FrontendOrigin: env("FRONTEND_ORIGIN"),
 		S3Bucket:       env("S3_BUCKET"),
 		AWSRegion:      env("AWS_REGION"),
+		TrustedProxies: parseList(env("TRUSTED_PROXIES")),
 	}
 	cfg.validate()
 	return cfg
+}
+
+// parseList convierte una lista separada por comas en un slice sin elementos vacíos.
+func parseList(raw string) []string {
+	var out []string
+	for _, item := range strings.Split(raw, ",") {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 func env(key string) string {
@@ -89,4 +104,13 @@ func ConnectMongo(uri, dbName string) {
 	}
 	DB = client.Database(dbName)
 	log.Println("MongoDB connected")
+}
+
+// PingMongo verifica la conexión con MongoDB usando el cliente ya guardado.
+// Se usa en el endpoint de health con un contexto de timeout corto.
+func PingMongo(ctx context.Context) error {
+	if DB == nil {
+		return errors.New("mongo not initialized")
+	}
+	return DB.Client().Ping(ctx, nil)
 }

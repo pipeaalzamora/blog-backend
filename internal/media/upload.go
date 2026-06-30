@@ -3,6 +3,8 @@ package media
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
@@ -29,6 +31,17 @@ var allowedImageTypes = map[string]string{
 	"image/png":  ".png",
 	"image/webp": ".webp",
 	"image/gif":  ".gif",
+}
+
+// randomSuffix genera un sufijo hexadecimal corto y aleatorio para evitar
+// colisiones de keys cuando dos uploads ocurren en el mismo instante.
+func randomSuffix() string {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback poco probable: usar el reloj en nanosegundos.
+		return fmt.Sprintf("%08x", time.Now().UnixNano()&0xffffffff)
+	}
+	return hex.EncodeToString(b)
 }
 
 func Init(bucketName, regionName string) {
@@ -88,7 +101,7 @@ func UploadHandler(c *gin.Context) {
 		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "image exceeds 5 MB limit"})
 		return
 	}
-	key := fmt.Sprintf("posts/%d%s", time.Now().UnixNano(), ext)
+	key := fmt.Sprintf("posts/%d-%s%s", time.Now().UnixNano(), randomSuffix(), ext)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

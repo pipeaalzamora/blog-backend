@@ -1,6 +1,7 @@
 package posts
 
 import (
+	"log"
 	"math"
 	"net/http"
 	"strconv"
@@ -80,7 +81,8 @@ func GetPublished(c *gin.Context) {
 	page, limit := parsePagination(c, defaultPublicLimit, maxPublicLimit)
 	posts, total, err := FindPublished(page, limit)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("GetPublished: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"posts": posts, "total": total, "page": page, "limit": limit})
@@ -90,7 +92,8 @@ func GetAll(c *gin.Context) {
 	page, limit := parsePagination(c, defaultAdminLimit, maxAdminLimit)
 	posts, total, err := FindAll(page, limit)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("GetAll: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"posts": posts, "total": total, "page": page, "limit": limit})
@@ -156,7 +159,12 @@ func CreatePost(c *gin.Context) {
 		Status:      req.Status,
 	}
 	if err := Create(post); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		if mongo.IsDuplicateKeyError(err) {
+			c.JSON(http.StatusConflict, gin.H{"error": "slug already exists"})
+			return
+		}
+		log.Printf("CreatePost: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create post"})
 		return
 	}
 	c.JSON(http.StatusCreated, post)
@@ -200,7 +208,12 @@ func UpdatePost(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "post not found"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		if mongo.IsDuplicateKeyError(err) {
+			c.JSON(http.StatusConflict, gin.H{"error": "slug already exists"})
+			return
+		}
+		log.Printf("UpdatePost: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not update post"})
 		return
 	}
 	post, _ := FindByID(id)
@@ -218,7 +231,8 @@ func DeletePost(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "post not found"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("DeletePost: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not delete post"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
@@ -232,7 +246,12 @@ func TogglePublishPost(c *gin.Context) {
 	}
 	post, err := TogglePublish(id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		if err == mongo.ErrNoDocuments {
+			c.JSON(http.StatusNotFound, gin.H{"error": "post not found"})
+			return
+		}
+		log.Printf("TogglePublishPost: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		return
 	}
 	c.JSON(http.StatusOK, post)

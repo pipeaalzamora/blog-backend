@@ -1,13 +1,20 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"log"
 	"mindblog/internal/auth"
 	"mindblog/internal/config"
 	"mindblog/internal/media"
 	"mindblog/internal/middleware"
 	"mindblog/internal/posts"
+	"net/http"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -25,6 +32,16 @@ func main() {
 
 	r := gin.Default()
 
+	// Configurar proxies de confianza. Corre detrás del proxy de Render:
+	// si TRUSTED_PROXIES está vacío no se confía en ninguno (nil).
+	var proxies []string
+	if len(cfg.TrustedProxies) > 0 {
+		proxies = cfg.TrustedProxies
+	}
+	if err := r.SetTrustedProxies(proxies); err != nil {
+		log.Printf("SetTrustedProxies: %v", err)
+	}
+
 	origins := []string{}
 	for _, o := range strings.Split(cfg.FrontendOrigin, ",") {
 		o = strings.TrimSpace(o)
@@ -34,20 +51,29 @@ func main() {
 	}
 
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     origins,
-		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
-		AllowCredentials: true,
+		AllowOrigins: origins,
+		AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders: []string{"Origin", "Content-Type", "Authorization"},
 	}))
+	r.Use(middleware.SecurityHeaders())
+	r.Use(middleware.BodyLimit(1 << 20))
 	r.Use(middleware.RateLimit(10))
 
 	api := r.Group("/api")
 	{
 		api.GET("/health", func(c *gin.Context) {
-			c.JSON(200, gin.H{"status": "ok"})
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+			defer cancel()
+			if err := config.PingMongo(ctx); err != nil {
+				log.Printf("health: mongo ping failed: %v", err)
+				c.JSON(http.StatusServiceUnavailable, gin.H{"status": "degraded"})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"status": "ok"})
 		})
 
-		api.POST("/auth/login", auth.LoginHandler)
+		// Login con limitador estricto independiente: 5 req por minuto por IP.
+		api.POST("/auth/login", middleware.LoginRateLimit(5, time.Minute), auth.LoginHandler)
 		api.POST("/upload", middleware.AuthRequired(), media.UploadHandler)
 
 		api.GET("/posts", posts.GetPublished)
@@ -70,6 +96,30 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
-	log.Println("Server running on :" + port)
-	r.Run(":" + port)
+
+	srv := &http.Server{
+		Addr:    ":" + port,
+		Handler: r,
+	}
+
+	// Arrancar el servidor en una goroutine para poder escuchar señales.
+	go func() {
+		log.Println("Server running on :" + port)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal("server error:", err)
+		}
+	}()
+
+	// Graceful shutdown ante SIGINT/SIGTERM.
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("Shutting down server...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("server shutdown error: %v", err)
+	}
+	log.Println("Server stopped")
 }
