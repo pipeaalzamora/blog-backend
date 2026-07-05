@@ -14,16 +14,15 @@ import (
 )
 
 type Config struct {
-	AdminEmail     string
-	AdminPassHash  string
-	JWTSecret      string
-	MongoURI       string
-	MongoDB        string
-	Port           string
-	FrontendOrigin string
-	S3Bucket       string
-	AWSRegion      string
-	TrustedProxies []string
+	FirebaseProjectID string
+	AdminEmails       []string
+	MongoURI          string
+	MongoDB           string
+	Port              string
+	FrontendOrigin    string
+	S3Bucket          string
+	AWSRegion         string
+	TrustedProxies    []string
 }
 
 var DB *mongo.Database
@@ -31,16 +30,15 @@ var DB *mongo.Database
 func Load() *Config {
 	_ = godotenv.Load()
 	cfg := &Config{
-		AdminEmail:     env("ADMIN_EMAIL"),
-		AdminPassHash:  env("ADMIN_PASSWORD_HASH"),
-		JWTSecret:      env("JWT_SECRET"),
-		MongoURI:       env("MONGODB_URI"),
-		MongoDB:        env("MONGODB_DB"),
-		Port:           env("PORT"),
-		FrontendOrigin: env("FRONTEND_ORIGIN"),
-		S3Bucket:       env("S3_BUCKET"),
-		AWSRegion:      env("AWS_REGION"),
-		TrustedProxies: parseList(env("TRUSTED_PROXIES")),
+		FirebaseProjectID: env("FIREBASE_PROJECT_ID"),
+		AdminEmails:       parseList(env("ADMIN_EMAILS")),
+		MongoURI:          env("MONGODB_URI"),
+		MongoDB:           env("MONGODB_DB"),
+		Port:              env("PORT"),
+		FrontendOrigin:    env("FRONTEND_ORIGIN"),
+		S3Bucket:          env("S3_BUCKET"),
+		AWSRegion:         env("AWS_REGION"),
+		TrustedProxies:    parseList(env("TRUSTED_PROXIES")),
 	}
 	cfg.validate()
 	return cfg
@@ -64,9 +62,7 @@ func env(key string) string {
 
 func (c *Config) validate() {
 	required := map[string]string{
-		"ADMIN_EMAIL":         c.AdminEmail,
-		"ADMIN_PASSWORD_HASH": c.AdminPassHash,
-		"JWT_SECRET":          c.JWTSecret,
+		"FIREBASE_PROJECT_ID": c.FirebaseProjectID,
 		"MONGODB_URI":         c.MongoURI,
 		"MONGODB_DB":          c.MongoDB,
 		"FRONTEND_ORIGIN":     c.FrontendOrigin,
@@ -77,8 +73,8 @@ func (c *Config) validate() {
 			log.Fatalf("missing required environment variable: %s", key)
 		}
 	}
-	if len(c.JWTSecret) < 32 {
-		log.Fatal("JWT_SECRET must be at least 32 characters")
+	if len(c.AdminEmails) == 0 {
+		log.Fatal("missing required environment variable: ADMIN_EMAILS")
 	}
 }
 

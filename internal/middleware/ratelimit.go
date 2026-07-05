@@ -19,12 +19,6 @@ var limiter = &rateLimiter{
 	lastGC:   time.Now(),
 }
 
-// loginLimiter es un limitador independiente y más estricto para el login.
-var loginLimiter = &rateLimiter{
-	requests: make(map[string][]time.Time),
-	lastGC:   time.Now(),
-}
-
 // gcInterval define cada cuánto se limpian IPs inactivas del map.
 const gcInterval = 5 * time.Minute
 
@@ -80,10 +74,4 @@ func (r *rateLimiter) limit(max int, window time.Duration) gin.HandlerFunc {
 // RateLimit limita las peticiones globales por IP a maxPerSecond por segundo.
 func RateLimit(maxPerSecond int) gin.HandlerFunc {
 	return limiter.limit(maxPerSecond, time.Second)
-}
-
-// LoginRateLimit limita las peticiones de login por IP usando un limitador
-// independiente y más estricto (max peticiones dentro de la ventana dada).
-func LoginRateLimit(max int, window time.Duration) gin.HandlerFunc {
-	return loginLimiter.limit(max, window)
 }

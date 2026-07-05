@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"log"
-	"mindblog/internal/auth"
 	"mindblog/internal/config"
+	"mindblog/internal/firebaseauth"
 	"mindblog/internal/media"
 	"mindblog/internal/middleware"
 	"mindblog/internal/posts"
@@ -23,8 +23,7 @@ import (
 func main() {
 	cfg := config.Load()
 	config.ConnectMongo(cfg.MongoURI, cfg.MongoDB)
-	auth.Init(cfg.JWTSecret)
-	auth.InitCredentials(cfg.AdminEmail, cfg.AdminPassHash)
+	firebaseauth.Init(cfg.FirebaseProjectID, cfg.AdminEmails)
 	if err := posts.EnsureIndexes(); err != nil {
 		log.Fatal("MongoDB index error:", err)
 	}
@@ -72,8 +71,6 @@ func main() {
 			c.JSON(http.StatusOK, gin.H{"status": "ok"})
 		})
 
-		// Login con limitador estricto independiente: 5 req por minuto por IP.
-		api.POST("/auth/login", middleware.LoginRateLimit(5, time.Minute), auth.LoginHandler)
 		api.POST("/upload", middleware.AuthRequired(), media.UploadHandler)
 
 		api.GET("/posts", posts.GetPublished)

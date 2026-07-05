@@ -1,7 +1,8 @@
 package middleware
 
 import (
-	"mindblog/internal/auth"
+	"errors"
+	"mindblog/internal/firebaseauth"
 	"net/http"
 	"strings"
 
@@ -16,12 +17,18 @@ func AuthRequired() gin.HandlerFunc {
 			return
 		}
 		token := strings.TrimPrefix(header, "Bearer ")
-		claims, err := auth.ValidateToken(token)
+		email, err := firebaseauth.VerifyIDToken(token)
 		if err != nil {
+			// Token válido pero email no autorizado -> 403.
+			if errors.Is(err, firebaseauth.ErrForbidden) {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+				return
+			}
+			// Token ausente/inválido -> 401.
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
 			return
 		}
-		c.Set("email", claims["email"])
+		c.Set("email", email)
 		c.Next()
 	}
 }
