@@ -73,11 +73,12 @@ func FindAll(page, limit int) ([]Post, int64, error) {
 	}()
 
 	skip := int64((page - 1) * limit)
+	// Cargamos el content para calcular wordCount, pero NO lo enviamos al
+	// cliente (se vacía tras el cálculo) para mantener liviana la respuesta.
 	opts := options.Find().
 		SetSort(bson.D{{Key: "createdAt", Value: -1}}).
 		SetSkip(skip).
-		SetLimit(int64(limit)).
-		SetProjection(bson.M{"content": 0})
+		SetLimit(int64(limit))
 	c, cancel := ctx()
 	defer cancel()
 	cur, err := col().Find(c, bson.M{}, opts)
@@ -88,6 +89,11 @@ func FindAll(page, limit int) ([]Post, int64, error) {
 	c2, cancel2 := ctx()
 	defer cancel2()
 	cur.All(c2, &result)
+
+	for i := range result {
+		result[i].WordCount = wordCount(result[i].Content)
+		result[i].Content = ""
+	}
 
 	cr := <-countCh
 	return result, cr.n, cr.err

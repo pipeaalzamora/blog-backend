@@ -15,7 +15,9 @@ type Post struct {
 	Mood        string        `bson:"mood" json:"mood"`
 	Tags        []string      `bson:"tags" json:"tags"`
 	ReadingTime int           `bson:"readingTime" json:"readingTime"`
-	Status      string        `bson:"status" json:"status"` // draft | published
+	// WordCount se calcula al vuelo en el listado admin (no se persiste).
+	WordCount int    `bson:"-" json:"wordCount,omitempty"`
+	Status    string `bson:"status" json:"status"` // draft | published
 	CreatedAt   time.Time     `bson:"createdAt" json:"createdAt"`
 	UpdatedAt   time.Time     `bson:"updatedAt" json:"updatedAt"`
 }
